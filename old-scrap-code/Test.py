@@ -39,5 +39,3 @@ class Test:
     def check_prereqs():
         cp.load_requisites_from_page(1)
 
-
-
