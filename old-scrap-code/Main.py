@@ -1,4 +1,4 @@
-''' 
+'''
 todo:
 
 make webscrapers for courses page
@@ -236,4 +236,4 @@ if __name__ == "__main__":
     
     db = DatabaseManager()
 
-    CourseParser.get_requirements(4, 4)
+    CourseParser.get_requirements(1, 2)
