@@ -20,6 +20,9 @@ Future:
 - Student course rating
 
 
+-Make it into a one-stop-shop for degree planning: bring in data about research oppportunities,
+internships, and links to helpful university webpages, and communities.
+
 
 B.S. Computer Science (Only core courses showing)
 ![Screenshot from 2025-04-09 13-57-48](https://github.com/user-attachments/assets/2a0b9f4a-d09f-4a02-bfbb-77495bba8c05)
