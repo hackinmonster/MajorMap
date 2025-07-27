@@ -1,29 +1,24 @@
-This is a small project of mine aimed at helping students visualize their plan of study. Currently, the best alternative for course planning is to use DegreeWorks, which lists required courses by category (major, electives, etc), but this lacks visualization features, making it difficult to mentally map out a plan. 
-
-I designed this project as a solution to that very problem. Using this tool, students can pick their program and the courses they've taken, and automatically generate a tree-like visualization, mapping out which courses they can take, and when. Each arrow points from a prerequisite to a requisite, with earlier classes being toward the left, and later toward the right.
-
-What's currently implemented?
-- Web-scraper to load courses from course catalog, and their relationships
-- Schema for storing courses, majors, and entity relationships
-- Basic front-end to visualize courses
-
-What needs to be implemented?
-- Web-scraper to load majors with their requirement categories (Core, elective, etc). Will definitely be using a language model to help because of how inconsistent the formatting of requirements is.
-- Logic to handle different types of requirements and parse natural language (Pick 2 from following, 6 credits from any ITSC XXXX, etc)
-- Improved front-end
-- Adding multiple majors and minors
-
-Future:
-- Chatbot that uses RAG with all the course descriptions to help students find courses that match their interests and goals
-- Functionality for helping students understand WHEN courses are offered. Many courses exist in catalog but are almost never actually offered. This makes planning difficult.
-- Basic search engine for finding courses with name with improved filtering
-- Student course rating
+## MajorMap is a degree planning platform for UNCC students.
+---
 
 
--Make it into a one-stop-shop for degree planning: bring in data about research oppportunities,
-internships, and links to helpful university webpages, and communities.
+**Why MajorMap?**
 
+University curricula can span 40+ courses with tangled prerequisite webs, forcing you to juggle catalogs, advisor meetings, and half-remembered requirements.
+<br>
+<br>
 
-B.S. Computer Science (Only core courses showing)
-![Screenshot from 2025-04-09 13-57-48](https://github.com/user-attachments/assets/2a0b9f4a-d09f-4a02-bfbb-77495bba8c05)
+With MajorMap, you get an interactive roadmap of every course, clear prerequisite paths, what-if planning tools, AI-powered course searching, and opportunties for research, internships, and networking / L&D events right in one centralized location.
 
+---
+### Visualize course relationships and degree structures
+
+<img width="3211" height="1887" alt="Screenshot from 2025-07-26 22-22-23" src="https://github.com/user-attachments/assets/ee9068eb-d743-4d82-9696-7012be56fc9d" />
+
+### Plan out your semester schedules, knowing exactly what you can and can't take at any given point
+
+<img width="858" height="700" alt="Screenshot from 2025-07-26 22-23-32" src="https://github.com/user-attachments/assets/92e879d0-f5c3-4533-a721-92b3e9cf9925" />
+
+### Search for new courses that align with your interests and aspirations- no need to dig through a catalog
+
+<img width="500" height="792" alt="Screenshot from 2025-07-26 22-30-20" src="https://github.com/user-attachments/assets/a86071bc-bafc-4cf6-98e5-7e38d1a2ce19" />
