@@ -45,12 +45,14 @@ async function loadData() {
         console.log('Loading major_categories.csv...');
         const categoriesData = await d3.csv('data/major_categories.csv', d => {
             const credits = parseInt(d.credits) || 0;
-            console.log('Category credits:', d.category_name, credits);
+            const isChoice = d.choice === 'true'; // Parse the choice column
+            console.log('Category credits:', d.category_name, credits, 'Choice:', isChoice);
             return {
                 major_id: d.major_id,
                 category_id: d.category_id,
                 category_name: d.category_name,
-                credits_required: credits
+                credits_required: credits,
+                is_choice: isChoice
             };
         });
         console.log('Categories loaded:', categoriesData);
@@ -114,197 +116,143 @@ async function loadData() {
     }
 }
 
-// Initialize search functionality
-function initializeSearch() {
-    const searchInput = document.getElementById('majorSearch');
-    const searchResults = document.getElementById('searchResults');
-    const searchButton = document.getElementById('searchButton');
-
-    function performSearch() {
-        console.log('Current majors:', majors);
-        const searchTerm = searchInput.value.toLowerCase();
-        console.log('Search term:', searchTerm);
-        
-        const results = majors.filter(major => 
-            major.major_name.toLowerCase().includes(searchTerm)
-        );
-        console.log('Search results:', results);
-
-        searchResults.innerHTML = '';
-        
-        if (results.length > 0) {
-            results.forEach(major => {
-                const item = document.createElement('div');
-                item.className = 'list-group-item';
-                item.innerHTML = `<i class="fas fa-graduation-cap me-2"></i>${major.major_name}`;
-                item.onclick = () => selectMajor(major);
-                searchResults.appendChild(item);
-            });
-            searchResults.style.display = 'block';
-        } else {
-            searchResults.style.display = 'none';
-        }
-    }
-
-    // Hide search results when clicking outside
-    document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-            searchResults.style.display = 'none';
-        }
-    });
-    
-    // Show search results when input is focused and has content
-    searchInput.addEventListener('focus', () => {
-        if (searchInput.value.trim()) {
-            performSearch();
-        }
-    });
-
-    searchInput.addEventListener('input', performSearch);
-    searchButton.addEventListener('click', performSearch);
-}
-
-// Handle major selection
-function selectMajor(major) {
-    selectedMajor = major;
-    selectedCourses.clear(); // Clear selected courses when changing majors
-    categoryCredits.clear(); // Clear category credits
-    semesterCourses.clear(); // Clear semester assignments
-    timelineCourses.clear(); // Clear timeline course tracking
-    
-    // Clear spotlight mode
-    spotlightMode = false;
-    currentSpotlightSemester = null;
-    
-    document.getElementById('majorSearch').value = major.major_name;
-    document.getElementById('searchResults').style.display = 'none';
-    
-    // Clear all semester boxes
-    const semesterContents = document.querySelectorAll('.semester-content');
-    semesterContents.forEach(content => {
-        content.innerHTML = '';
-    });
-    
-    // Reset semester credit counters
-    const creditCounters = document.querySelectorAll('.timeline-credits');
-    creditCounters.forEach(counter => {
-        counter.textContent = '0 credits';
-    });
-    
-    // Make sure timeline container is visible
-    document.getElementById('timeline-container').style.display = 'block';
-    
-    // Initialize the sidebar and visualization
-    initializeSidebar(major.major_id);
-    visualizeMajor(major.major_id);
-}
-
-// Initialize the sidebar with categories and courses
+// Initialize sidebar with categories and courses for a major
 function initializeSidebar(majorId) {
+    const categoriesForMajor = majorCategories.filter(cat => cat.major_id == majorId);
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = '<h3>Course Categories</h3>';
 
-    // Get categories for this major
-    const categories = majorCategories.filter(cat => cat.major_id === majorId);
-    
-    categories.forEach(category => {
+    categoriesForMajor.forEach(category => {
+        const coursesInCategory = categoryCourses
+            .filter(cc => cc.category_id === category.category_id)
+            .map(cc => courses.find(c => c.course_id === cc.course_id))
+            .filter(c => c); // Remove undefined courses
+
+        const isChoice = category.is_choice; // Use the CSV data directly
+        
+        // Create category section
         const categorySection = document.createElement('div');
         categorySection.className = 'category-section';
-        
-        // Create category header (clickable)
+        categorySection.id = `category-${category.category_id}`;
+
+        // Create category header (clickable for dropdown)
         const categoryHeader = document.createElement('div');
         categoryHeader.className = 'category-header';
         categoryHeader.onclick = () => toggleCategoryDropdown(category.category_id);
-        
-        // Category title
+
+        // Category title and status container
         const categoryTitle = document.createElement('div');
         categoryTitle.className = 'category-title';
-        categoryTitle.textContent = category.category_name;
         
-        // Category status (completion indicator + dropdown arrow)
+        const titleText = document.createElement('span');
+        titleText.textContent = category.category_name;
+        categoryTitle.appendChild(titleText);
+        
+        // Add indicator for category type
+        const typeIndicator = document.createElement('span');
+        typeIndicator.className = 'category-type-indicator';
+        typeIndicator.textContent = isChoice ? ' (Choose)' : ' (Required)';
+        typeIndicator.style.fontSize = '12px';
+        typeIndicator.style.color = isChoice ? '#6c757d' : '#28a745';
+        typeIndicator.style.fontWeight = '500';
+        categoryTitle.appendChild(typeIndicator);
+
         const categoryStatus = document.createElement('div');
         categoryStatus.className = 'category-status';
-        
+
         // Completion indicator
         const completionIndicator = document.createElement('span');
         completionIndicator.className = 'completion-indicator';
-        completionIndicator.id = `completion-${category.category_id}`;
-        
+        categoryStatus.appendChild(completionIndicator);
+
         // Credits info
         const creditsInfo = document.createElement('span');
         creditsInfo.className = 'credits-info';
-        creditsInfo.id = `credits-${category.category_id}`;
-        
+        creditsInfo.textContent = `0/${category.credits_required} credits`;
+        categoryStatus.appendChild(creditsInfo);
+
         // Dropdown arrow
         const dropdownArrow = document.createElement('span');
-        dropdownArrow.className = 'dropdown-arrow expanded'; // Start expanded
+        dropdownArrow.className = 'dropdown-arrow';
         dropdownArrow.innerHTML = '▼';
-        dropdownArrow.id = `arrow-${category.category_id}`;
-        
-        categoryStatus.appendChild(completionIndicator);
-        categoryStatus.appendChild(creditsInfo);
-        categoryStatus.appendChild(dropdownArrow);
-        
+
         categoryHeader.appendChild(categoryTitle);
         categoryHeader.appendChild(categoryStatus);
-        
-        // Create category content (initially visible)
+        categoryHeader.appendChild(dropdownArrow);
+
+        // Create category content (course list)
         const categoryContent = document.createElement('div');
-        categoryContent.className = 'category-content expanded'; // Start expanded
+        categoryContent.className = 'category-content';
         categoryContent.id = `content-${category.category_id}`;
         
-        // Category info
-        const categoryInfo = document.createElement('div');
-        categoryInfo.className = 'category-info';
-        categoryInfo.innerHTML = `
-            <strong>Required Credits:</strong> ${category.credits_required}<br>
-            <strong>Description:</strong> ${category.description || 'No description available'}
-        `;
-        categoryContent.appendChild(categoryInfo);
-        
-        // Get courses for this category
-        const categoryCoursesData = categoryCourses.filter(cc => cc.category_id === category.category_id);
-        const categoryCoursesIds = categoryCoursesData.map(cc => cc.course_id);
-        const coursesInCategory = courses.filter(course => categoryCoursesIds.includes(course.course_id));
-        
+        // Set initial state based on category type
+        if (isChoice) {
+            categoryContent.classList.add('expanded'); // Expanded by default for choice categories
+            dropdownArrow.style.transform = 'rotate(180deg)';
+        } else {
+            categoryContent.classList.remove('expanded'); // Collapsed by default for non-choice categories
+        }
+
         coursesInCategory.forEach(course => {
-            const courseItem = document.createElement('div');
+            if (course) {
+                const courseItem = document.createElement('div');
                 courseItem.className = 'course-item';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `checkbox-${course.course_id}`;
+                checkbox.className = 'course-checkbox';
                 
-            // Checkbox
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'course-checkbox';
-            checkbox.id = `checkbox-${course.course_id}`;
-            checkbox.checked = selectedCourses.has(course.course_id);
-            checkbox.onchange = () => toggleCourseFromCheckbox(course, category);
-            
-            // Course label
-            const courseLabel = document.createElement('label');
-            courseLabel.className = 'course-label';
-            courseLabel.htmlFor = `checkbox-${course.course_id}`;
-            courseLabel.innerHTML = `<strong>${course.course_id}</strong><br>${course.Name}`;
-            
-            // Course credits
-            const courseCredits = document.createElement('span');
-            courseCredits.className = 'course-credits';
-            courseCredits.textContent = `${course.Credits} cr`;
-            
-            courseItem.appendChild(checkbox);
-            courseItem.appendChild(courseLabel);
-            courseItem.appendChild(courseCredits);
-            
-            categoryContent.appendChild(courseItem);
+                // For non-choice categories, automatically check all courses
+                if (!isChoice) {
+                    checkbox.checked = true;
+                    selectedCourses.add(course.course_id);
+                    // Add to visualization immediately for non-choice categories
+                    setTimeout(() => {
+                        if (!timelineCourses.has(course.course_id)) {
+                            addCourseToVisualizationSmoothly(course.course_id);
+                        }
+                    }, 100); // Small delay to ensure visualization is ready
+                }
+                
+                checkbox.onchange = () => toggleCourseFromCheckbox(course, category);
+
+                const label = document.createElement('label');
+                label.htmlFor = `checkbox-${course.course_id}`;
+                label.className = 'course-label';
+
+                const courseInfo = document.createElement('div');
+                courseInfo.className = 'course-info';
+
+                const courseName = document.createElement('div');
+                courseName.className = 'course-name';
+                courseName.textContent = `${course.course_id}`;
+
+                const courseTitle = document.createElement('div');
+                courseTitle.className = 'course-title';
+                courseTitle.textContent = course.Name;
+
+                const courseCredits = document.createElement('span');
+                courseCredits.className = 'course-credits';
+                courseCredits.textContent = `${getCourseCredits(course.course_id, course.Credits)} cr`;
+
+                courseInfo.appendChild(courseName);
+                courseInfo.appendChild(courseTitle);
+                label.appendChild(courseInfo);
+                label.appendChild(courseCredits);
+
+                courseItem.appendChild(checkbox);
+                courseItem.appendChild(label);
+                categoryContent.appendChild(courseItem);
+            }
         });
-        
+
         categorySection.appendChild(categoryHeader);
         categorySection.appendChild(categoryContent);
         sidebar.appendChild(categorySection);
-        
-        // Initialize category credits tracking
+
+        // Update category credits and status
         updateCategoryCredits(category);
-        
-        // Update category status
         updateCategoryStatus(category);
     });
 }
@@ -911,7 +859,7 @@ function visualizeMajor(majorId) {
             return d.id;
         })
         .style('fill', '#fff')
-        .style('font-size', '16px')
+        .style('font-size', '18px')
         .style('pointer-events', 'none')
         .style('font-weight', 'bold');
 
@@ -985,9 +933,18 @@ function visualizeMajor(majorId) {
                 ${d.name}
             `);
             
-            // Position the tooltip near the node
-            tooltip.style('left', (event.pageX + 15) + 'px')
-                   .style('top', (event.pageY - 28) + 'px');
+            // Position the tooltip above the node
+            setTimeout(() => {
+                const nodeRect = event.target.getBoundingClientRect();
+                const tooltipNode = tooltip.node();
+                const tooltipRect = tooltipNode.getBoundingClientRect();
+                
+                const left = Math.max(5, nodeRect.left + nodeRect.width / 2 - tooltipRect.width / 2);
+                const top = Math.max(5, nodeRect.top - tooltipRect.height - 10);
+                
+                tooltip.style('left', left + 'px')
+                       .style('top', top + 'px');
+            }, 10);
             
             // Only highlight connections if spotlight mode is NOT active
             if (!spotlightMode) {
@@ -1069,15 +1026,18 @@ function visualizeMajor(majorId) {
     // Create legend with more efficient layout
     const uniqueSubjects = [...new Set(majorCourses.map(d => d.Subject))];
     
-    // Update legend position to be at the bottom
-    const legend = svg.append('g')
-        .attr('class', 'legend')
-        .attr('transform', `translate(${margin.left},${height - margin.bottom + 10})`);
-
-    // Make legend more compact
+    // Calculate legend width for centering
     const legendItemWidth = 80;
     const legendItemsPerRow = Math.floor((width - margin.left - margin.right) / legendItemWidth);
+    const totalLegendWidth = Math.min(uniqueSubjects.length, legendItemsPerRow) * legendItemWidth;
+    const legendStartX = (width - totalLegendWidth) / 2;
+    
+    // Center legend position at the top
+    const legend = svg.append('g')
+        .attr('class', 'legend')
+        .attr('transform', `translate(${legendStartX}, 20)`);
 
+    // Make legend more compact
     const legendItem = legend.selectAll('.legend-item')
         .data(uniqueSubjects)
         .enter()
@@ -1110,6 +1070,16 @@ function visualizeMajor(majorId) {
 // Drag behavior for moving nodes within the visualization
 function drag(simulation) {
     function dragstarted(event) {
+        // Store the initial mouse position for click detection
+        event.subject.startX = event.sourceEvent.clientX;
+        event.subject.startY = event.sourceEvent.clientY;
+        event.subject.totalDistance = 0;
+        
+        // If in spotlight mode, don't allow dragging - just return
+        if (spotlightMode) {
+            return;
+        }
+        
         // Store the original coordinates for potential moving operation
         event.subject.oldX = event.subject.x;
         event.subject.oldY = event.subject.y;
@@ -1119,6 +1089,18 @@ function drag(simulation) {
     }
 
     function dragged(event) {
+        // Track total distance moved for click detection
+        if (event.subject.startX !== undefined && event.subject.startY !== undefined) {
+            const dx = event.sourceEvent.clientX - event.subject.startX;
+            const dy = event.sourceEvent.clientY - event.subject.startY;
+            event.subject.totalDistance = Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        // If in spotlight mode, don't allow dragging
+        if (spotlightMode) {
+            return;
+        }
+        
         // Check if we're dragging over a semester box
         const mouseX = event.sourceEvent.clientX;
         const mouseY = event.sourceEvent.clientY;
@@ -1153,6 +1135,22 @@ function drag(simulation) {
     }
 
     function dragended(event) {
+        // Check if this was a click (small movement) rather than a drag
+        const isClick = event.subject.totalDistance < 5; // 5 pixels threshold
+        
+        // If it's a click in spotlight mode, handle as click
+        if (spotlightMode && isClick && event.subject.type === 'course') {
+            if (currentSpotlightSemester) {
+                addCourseToSpotlightSemester(event.subject.id);
+            }
+            return;
+        }
+        
+        // If in spotlight mode and it's not a click, don't process drag end
+        if (spotlightMode) {
+            return;
+        }
+        
         if (!event.active) simulation.alphaTarget(0);
         
         // Get mouse position
@@ -1336,13 +1334,19 @@ function updateCategoryCredits(category) {
         if (selectedCourses.has(courseId)) {
             const course = courses.find(c => c.course_id === courseId);
             if (course) {
-                totalCredits += course.Credits; // Use the Credits from course object which includes overrides
+                totalCredits += getCourseCredits(courseId, course.Credits); // Use getCourseCredits for consistency
             }
         }
     });
     
     // Update the category credits tracking
     categoryCredits.set(categoryId, totalCredits);
+    
+    // Update the UI display
+    const creditsInfo = document.querySelector(`#category-${categoryId} .credits-info`);
+    if (creditsInfo) {
+        creditsInfo.textContent = `${totalCredits}/${category.credits_required} credits`;
+    }
 }
 
 // Add a course back to the visualization smoothly
@@ -1414,7 +1418,7 @@ function addCourseBackToVisualization(courseId) {
         .attr('text-anchor', 'middle')
         .text(newNodeData.id)
         .style('fill', '#fff')
-        .style('font-size', '16px')
+        .style('font-size', '18px')
         .style('pointer-events', 'none')
         .style('font-weight', 'bold');
     
@@ -1537,7 +1541,7 @@ function addCourseToVisualizationSmoothly(courseId) {
         .attr('text-anchor', 'middle')
         .text(d => d.id)
         .style('fill', '#fff')
-        .style('font-size', '16px')
+        .style('font-size', '18px')
         .style('pointer-events', 'none')
         .style('font-weight', 'bold');
     
@@ -1552,9 +1556,18 @@ function addCourseToVisualizationSmoothly(courseId) {
                 ${d.name}
             `);
             
-            // Position the tooltip near the node
-            tooltip.style('left', (event.pageX + 15) + 'px')
-                   .style('top', (event.pageY - 28) + 'px');
+            // Position the tooltip above the node
+            setTimeout(() => {
+                const nodeRect = event.target.getBoundingClientRect();
+                const tooltipNode = tooltip.node();
+                const tooltipRect = tooltipNode.getBoundingClientRect();
+                
+                const left = Math.max(5, nodeRect.left + nodeRect.width / 2 - tooltipRect.width / 2);
+                const top = Math.max(5, nodeRect.top - tooltipRect.height - 10);
+                
+                tooltip.style('left', left + 'px')
+                       .style('top', top + 'px');
+            }, 10);
             
             // Only highlight connections if spotlight mode is NOT active
             if (!spotlightMode) {
@@ -1671,443 +1684,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeSemanticSearch();
 }); 
 
-// Initialize semantic search functionality
-function initializeSemanticSearch() {
-    const semanticSearchBtn = document.getElementById('semanticSearchBtn');
-    if (semanticSearchBtn) {
-        semanticSearchBtn.addEventListener('click', openSemanticSearchModal);
-    }
-}
 
-// Open the semantic search modal
-function openSemanticSearchModal() {
-    const modalOverlay = document.createElement('div');
-    modalOverlay.className = 'semantic-modal-overlay';
-    modalOverlay.onclick = (e) => {
-        if (e.target === modalOverlay) {
-            closeSemanticSearchModal();
-        }
-    };
-    
-    const modalContent = document.createElement('div');
-    modalContent.className = 'semantic-modal-content';
-    
-    modalContent.innerHTML = `
-        <div class="semantic-modal-header">
-            <h2>
-                <i class="fas fa-brain"></i>
-                AI Course Search
-            </h2>
-            <button class="semantic-modal-close" onclick="closeSemanticSearchModal()">&times;</button>
-        </div>
-        <div class="semantic-modal-body">
-            <div class="semantic-input-section">
-                <label for="semanticInput">What are you looking to learn or what career are you interested in?</label>
-                <textarea 
-                    id="semanticInput" 
-                    placeholder="For example: 'I want to become a data scientist' or 'I'm interested in cybersecurity' or 'I need courses about machine learning and AI'"
-                ></textarea>
-            </div>
-            <button class="semantic-search-button" onclick="performSemanticSearch()">
-                <i class="fas fa-search"></i> Find Relevant Courses
-            </button>
-            <div id="semanticResults"></div>
-        </div>
-    `;
-    
-    modalOverlay.appendChild(modalContent);
-    document.body.appendChild(modalOverlay);
-    
-    // Add fade-in animation
-    setTimeout(() => {
-        modalOverlay.classList.add('show');
-        // Focus on the textarea
-        const textarea = document.getElementById('semanticInput');
-        if (textarea) {
-            textarea.focus();
-            textarea.value = ''; // Clear any previous input
-        }
-        
-        // Clear any previous results
-        const resultsContainer = document.getElementById('semanticResults');
-        if (resultsContainer) {
-            resultsContainer.innerHTML = '';
-        }
-    }, 10);
-    
-    // Add Enter key listener for textarea
-    document.getElementById('semanticInput').addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'Enter') {
-            performSemanticSearch();
-        }
-    });
-}
-
-// Close the semantic search modal
-function closeSemanticSearchModal() {
-    const modal = document.querySelector('.semantic-modal-overlay');
-    if (modal) {
-        modal.classList.remove('show');
-        setTimeout(() => {
-            modal.remove();
-        }, 300);
-    }
-}
-
-// Perform semantic search using OpenAI API
-async function performSemanticSearch() {
-    const input = document.getElementById('semanticInput').value.trim();
-    const resultsContainer = document.getElementById('semanticResults');
-    const searchButton = document.querySelector('.semantic-search-button');
-    
-    console.log('Starting semantic search with input:', input); // Debug log
-    
-    if (!input) {
-        alert('Please describe what you\'re looking to learn or your career interests.');
-        return;
-    }
-    
-    // Clear any previous results immediately
-    resultsContainer.innerHTML = '';
-    
-    // Disable button and show loading
-    searchButton.disabled = true;
-    searchButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
-    
-    resultsContainer.innerHTML = `
-        <div class="semantic-loading">
-            <div class="semantic-spinner"></div>
-            <span>AI is analyzing your request and finding relevant courses...</span>
-        </div>
-    `;
-    
-    try {
-        // Step 1: Get keywords from OpenAI
-        console.log('Calling getSearchKeywords...'); // Debug log
-        const keywords = await getSearchKeywords(input);
-        console.log('Generated keywords:', keywords);
-        
-        // Step 2: Perform semantic search on courses
-        console.log('Performing course search...'); // Debug log
-        const rankedCourses = performCourseSemanticSearch(keywords, input);
-        console.log('Ranked courses:', rankedCourses);
-        
-        // Step 3: Display results
-        console.log('Displaying results...'); // Debug log
-        displaySemanticResults(rankedCourses, keywords);
-        
-    } catch (error) {
-        console.error('Semantic search error:', error);
-        resultsContainer.innerHTML = `
-            <div class="alert alert-danger">
-                <strong>Error:</strong> Unable to process your request. ${error.message || 'Please try again later.'}
-            </div>
-        `;
-    } finally {
-        // Re-enable button
-        searchButton.disabled = false;
-        searchButton.innerHTML = '<i class="fas fa-search"></i> Find Relevant Courses';
-    }
-}
-
-// Get search keywords from OpenAI API
-async function getSearchKeywords(userInput) {
-    try {
-        console.log('Making API call for input:', userInput); // Debug log
-        
-        const response = await fetch('/api/semantic-search', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache', // Prevent caching
-            },
-            body: JSON.stringify({ 
-                query: userInput,
-                timestamp: Date.now() // Add timestamp to ensure unique requests
-            })
-        });
-        
-        console.log('API response status:', response.status); // Debug log
-        
-        if (!response.ok) {
-            throw new Error('Failed to get course recommendations');
-        }
-        
-        const data = await response.json();
-        console.log('API response data:', data); // Debug log
-        return data.keywords;
-    } catch (error) {
-        console.error('API call failed, falling back to local analysis:', error);
-        // Fallback to local analysis if API fails
-        return await simulateOpenAIAnalysis(userInput);
-    }
-}
-
-// Simulate OpenAI analysis for demo purposes
-async function simulateOpenAIAnalysis(userInput) {
-    // Add a delay to simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const input = userInput.toLowerCase();
-    console.log('Simulating analysis for input:', input); // Debug log
-    
-    // Career/interest to keywords mapping
-    const keywordMappings = {
-        'biolog': ['biology', 'life sciences', 'genetics', 'molecular biology', 'anatomy', 'physiology', 'ecology', 'biochemistry'],
-        'chemistry': ['chemistry', 'organic chemistry', 'inorganic chemistry', 'physical chemistry', 'biochemistry', 'laboratory', 'analytical'],
-        'physics': ['physics', 'mechanics', 'thermodynamics', 'electromagnetism', 'quantum mechanics', 'optics', 'laboratory'],
-        'data scien': ['statistics', 'machine learning', 'data analysis', 'python', 'programming', 'database', 'mathematics', 'linear algebra', 'calculus', 'probability'],
-        'cybersecurity': ['security', 'network', 'cryptography', 'systems', 'computer systems', 'information security', 'programming', 'operating systems'],
-        'software engineer': ['programming', 'software development', 'algorithms', 'data structures', 'computer science', 'object oriented', 'software design', 'databases'],
-        'web develop': ['web programming', 'javascript', 'html', 'css', 'database', 'programming', 'software engineering', 'user interface'],
-        'artificial intelligence': ['machine learning', 'neural networks', 'algorithms', 'mathematics', 'programming', 'statistics', 'computer science'],
-        'machine learning': ['statistics', 'mathematics', 'algorithms', 'programming', 'linear algebra', 'calculus', 'data analysis'],
-        'game develop': ['programming', 'computer graphics', 'software engineering', 'mathematics', 'algorithms', 'computer science'],
-        'mobile app': ['programming', 'software development', 'user interface', 'mobile computing', 'app development'],
-        'network': ['networking', 'computer networks', 'systems administration', 'security', 'telecommunications'],
-        'database': ['database design', 'data management', 'sql', 'data structures', 'information systems'],
-        'business': ['business', 'management', 'economics', 'finance', 'marketing', 'accounting'],
-        'math': ['mathematics', 'calculus', 'linear algebra', 'statistics', 'discrete mathematics', 'probability'],
-        'engineer': ['engineering', 'mathematics', 'physics', 'problem solving', 'design', 'systems'],
-        'psycholog': ['psychology', 'human behavior', 'cognitive science', 'social psychology', 'research methods', 'statistics'],
-        'sociol': ['sociology', 'social science', 'human society', 'social research', 'cultural studies', 'social theory'],
-        'english': ['english', 'literature', 'writing', 'composition', 'rhetoric', 'communication', 'critical thinking'],
-        'history': ['history', 'historical analysis', 'research methods', 'cultural studies', 'social studies', 'critical thinking'],
-        'economics': ['economics', 'microeconomics', 'macroeconomics', 'statistics', 'mathematical analysis', 'policy analysis'],
-        'accounting': ['accounting', 'financial accounting', 'managerial accounting', 'auditing', 'taxation', 'business'],
-        'marketing': ['marketing', 'consumer behavior', 'market research', 'advertising', 'business strategy', 'communication'],
-        'finance': ['finance', 'financial analysis', 'investment', 'banking', 'risk management', 'economics'],
-        'education': ['education', 'teaching', 'learning theory', 'curriculum', 'pedagogy', 'child development'],
-        'art': ['art', 'visual arts', 'design', 'creativity', 'art history', 'studio arts', 'aesthetics'],
-        'music': ['music', 'music theory', 'composition', 'performance', 'music history', 'audio production'],
-        'health': ['health', 'public health', 'healthcare', 'medicine', 'health promotion', 'epidemiology', 'nutrition']
-    };
-    
-    let keywords = [];
-    
-    // Find matching keywords based on input
-    for (const [key, keywordList] of Object.entries(keywordMappings)) {
-        if (input.includes(key)) {
-            keywords = [...keywordList]; // Create a fresh copy
-            console.log('Found match for:', key, 'Keywords:', keywords);
-            break;
-        }
-    }
-    
-    // If no specific match, extract general keywords
-    if (keywords.length === 0) {
-        if (input.includes('program') || input.includes('code') || input.includes('computer') || input.includes('software')) {
-            keywords = ['programming', 'computer science', 'software development', 'algorithms', 'problem solving'];
-        } else if (input.includes('business') || input.includes('manage') || input.includes('entrepreneur')) {
-            keywords = ['business', 'management', 'economics', 'communication', 'leadership'];
-        } else if (input.includes('science') || input.includes('research')) {
-            keywords = ['scientific method', 'research', 'analysis', 'critical thinking', 'mathematics'];
-        } else {
-            // Default broad search
-            keywords = ['critical thinking', 'problem solving', 'analysis', 'communication', 'research methods'];
-        }
-        console.log('Using fallback keywords for input:', input, 'Keywords:', keywords);
-    }
-    
-    // Remove duplicates and limit to top 8 keywords
-    keywords = [...new Set(keywords)].slice(0, 8);
-    
-    console.log('Final keywords for', input, ':', keywords);
-    return keywords;
-}
-
-// Perform semantic search on courses using keywords
-function performCourseSemanticSearch(keywords, originalQuery) {
-    if (!courses || courses.length === 0) {
-        return [];
-    }
-    
-    const scoredCourses = courses.map(course => {
-        const searchText = `${course.Name} ${course.Description || ''}`.toLowerCase();
-        const courseId = course.course_id.toLowerCase();
-        
-        let score = 0;
-        let matchedKeywords = [];
-        
-        // Score based on keyword matches
-        keywords.forEach(keyword => {
-            const keywordLower = keyword.toLowerCase();
-            
-            // Higher score for exact matches in course name
-            if (course.Name.toLowerCase().includes(keywordLower)) {
-                score += 10;
-                matchedKeywords.push(keyword);
-            }
-            
-            // Medium score for matches in description
-            if (course.Description && course.Description.toLowerCase().includes(keywordLower)) {
-                score += 5;
-                if (!matchedKeywords.includes(keyword)) {
-                    matchedKeywords.push(keyword);
-                }
-            }
-            
-            // Lower score for partial matches
-            if (searchText.includes(keywordLower.substring(0, 4))) {
-                score += 2;
-            }
-        });
-        
-        // Bonus for ITSC courses (assuming computer science focus)
-        if (course.Subject === 'ITSC') {
-            score += 3;
-        }
-        
-        // Bonus for MATH and STAT courses for data science queries
-        if ((course.Subject === 'MATH' || course.Subject === 'STAT') && 
-            keywords.some(k => ['statistics', 'mathematics', 'data analysis', 'calculus', 'linear algebra'].includes(k))) {
-            score += 4;
-        }
-        
-        return {
-            course,
-            score,
-            matchedKeywords,
-            relevancePercentage: Math.min(100, Math.round((score / keywords.length) * 10))
-        };
-    });
-    
-    // Filter courses with score > 0 and sort by score
-    return scoredCourses
-        .filter(item => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 15); // Limit to top 15 results
-}
-
-// Display semantic search results
-function displaySemanticResults(rankedCourses, keywords) {
-    const resultsContainer = document.getElementById('semanticResults');
-    
-    if (rankedCourses.length === 0) {
-        resultsContainer.innerHTML = `
-            <div class="semantic-results">
-                <h3>No Relevant Courses Found</h3>
-                <p>Try rephrasing your search or using different keywords. Consider being more specific about the subject area or career path you're interested in.</p>
-            </div>
-        `;
-        return;
-    }
-    
-    const keywordsList = keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('');
-    
-    const resultsHTML = `
-        <div class="semantic-results">
-            <h3>Recommended Courses</h3>
-            <div class="mb-3">
-                <small class="text-muted">Based on keywords: ${keywordsList}</small>
-            </div>
-            ${rankedCourses.map(item => createCourseResultHTML(item)).join('')}
-        </div>
-    `;
-    
-    resultsContainer.innerHTML = resultsHTML;
-}
-
-// Create HTML for a single course result
-function createCourseResultHTML(courseItem) {
-    const { course, score, matchedKeywords, relevancePercentage } = courseItem;
-    const truncatedDescription = course.Description ? 
-        (course.Description.length > 200 ? course.Description.substring(0, 200) + '...' : course.Description) :
-        'No description available.';
-    
-    const matchedKeywordsBadges = matchedKeywords.map(k => 
-        `<span class="badge bg-success me-1">${k}</span>`
-    ).join('');
-    
-    return `
-        <div class="course-result" onclick="showCourseInformation('${course.course_id}')">
-            <div class="course-result-header">
-                <div class="course-result-id">${course.course_id}</div>
-                <div class="course-result-relevance">${relevancePercentage}% match</div>
-            </div>
-            <div class="course-result-name">${course.Name}</div>
-            <div class="course-result-description">${truncatedDescription}</div>
-            ${matchedKeywords.length > 0 ? `
-                <div class="mt-2">
-                    <small class="text-muted">Matched: ${matchedKeywordsBadges}</small>
-                </div>
-            ` : ''}
-            <div class="course-result-actions">
-                <button class="course-result-btn" onclick="event.stopPropagation(); addCourseFromSemanticSearch('${course.course_id}')">
-                    <i class="fas fa-plus"></i> Add to Plan
-                </button>
-                <button class="course-result-btn" onclick="event.stopPropagation(); showCourseInformation('${course.course_id}')">
-                    <i class="fas fa-info-circle"></i> Details
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-// Add a course from semantic search results
-function addCourseFromSemanticSearch(courseId) {
-    if (!selectedMajor) {
-        alert('Please select a major first to add courses to your plan.');
-        return;
-    }
-    
-    // Check if course is already selected
-    if (selectedCourses.has(courseId)) {
-        alert('This course is already in your plan.');
-        return;
-    }
-    
-    // Find the course
-    const course = courses.find(c => c.course_id === courseId);
-    if (!course) {
-        alert('Course not found.');
-        return;
-    }
-    
-    // Find which category this course belongs to (if any)
-    const categoryLink = categoryCourses.find(cc => cc.course_id === courseId);
-    let category = null;
-    
-    if (categoryLink) {
-        category = majorCategories.find(cat => cat.category_id === categoryLink.category_id);
-    }
-    
-    // Add the course to selected courses
-    selectedCourses.add(courseId);
-    
-    // Update the checkbox in the sidebar if it exists
-    const checkbox = document.getElementById(`checkbox-${courseId}`);
-    if (checkbox) {
-        checkbox.checked = true;
-    }
-    
-    // Add to visualization if not in timeline
-    if (!timelineCourses.has(courseId)) {
-        addCourseToVisualizationSmoothly(courseId);
-    }
-    
-    // Update category credits and status only if course belongs to a category in this major
-    if (category) {
-        updateCategoryCredits(category);
-        updateCategoryStatus(category);
-    }
-    
-    // Show success message
-    const courseResultElement = document.querySelector(`.course-result[onclick*="${courseId}"]`);
-    if (courseResultElement) {
-        const originalHTML = courseResultElement.innerHTML;
-        courseResultElement.innerHTML = `
-            <div style="text-align: center; padding: 20px; color: #28a745;">
-                <i class="fas fa-check-circle fa-2x"></i>
-                <div style="margin-top: 10px; font-weight: 500;">Added to your plan!</div>
-            </div>
-        `;
-        
-        setTimeout(() => {
-            courseResultElement.innerHTML = originalHTML;
-        }, 2000);
-    }
-}
 
 // Toggle semester spotlight mode
 function toggleSemesterSpotlight(semesterId) {
@@ -2375,119 +1952,32 @@ function addCourseToSpotlightSemester(courseId) {
         return; // Not in spotlight mode
     }
     
-    // Validate that this course can be scheduled in the spotlight semester
-    if (!canCourseBeScheduledInSemester(courseId, currentSpotlightSemester)) {
-        // Show error for invalid scheduling
-        const semesterName = document.querySelector(`#${currentSpotlightSemester} .semester-header`).textContent;
-        alert(`Cannot schedule ${courseId} in ${semesterName}. Check prerequisite requirements.`);
+    // Use the same validation logic as drag functionality
+    if (!validateCourseScheduling(courseId, currentSpotlightSemester)) {
+        // validateCourseScheduling already shows the error message if needed
         return;
     }
     
     // Find the course data
     const course = courses.find(c => c.course_id === courseId);
-    if (!course) return;
+    if (!course) {
+        return;
+    }
     
     // Prepare course data for semester
     const courseData = {
         id: courseId,
         title: course.Name.split('-')[1]?.trim() || course.Name,
-        credits: course.Credits,
+        credits: getCourseCredits(courseId, course.Credits), // Pass courseId and default credits
         categoryId: findCategoryForCourse(courseId)
     };
     
-    // Add course to the spotlight semester
+    // Add course to semester directly without toggling selection
     addCourseToSemesterWithoutUpdate(courseData, currentSpotlightSemester);
     
-    // Remove the course from visualization
+    // Mark this course as no longer visible in the graph but still selected
     updateVisualizationWithoutCourse(courseId);
 }
 
-// Show detailed course information in a modal
-function showCourseInformation(courseId) {
-    // Find the course data
-    const course = courses.find(c => c.course_id === courseId);
-    if (!course) return;
-    
-    console.log('Course data for modal:', course); // Debug log to check course data
-    
-    // Create modal overlay
-    const modalOverlay = document.createElement('div');
-    modalOverlay.className = 'course-modal-overlay';
-    modalOverlay.onclick = () => closeCourseModal();
-    
-    // Create modal content
-    const modalContent = document.createElement('div');
-    modalContent.className = 'course-modal-content';
-    modalContent.onclick = (e) => e.stopPropagation(); // Prevent closing when clicking content
-    
-    // Find prerequisites for this course
-    const coursePrereqs = prerequisites.filter(p => p.course_id === courseId);
-    const prereqList = coursePrereqs.map(p => p.prerequisite_id).join(', ') || 'None';
-    
-    // Find courses that have this as a prerequisite
-    const dependentCourses = prerequisites.filter(p => p.prerequisite_id === courseId);
-    const dependentList = dependentCourses.map(p => p.course_id).join(', ') || 'None';
-    
-    // Find which category this course belongs to
-    const categoryLink = categoryCourses.find(cc => cc.course_id === courseId);
-    let categoryInfo = 'Not categorized';
-    if (categoryLink) {
-        const category = majorCategories.find(cat => cat.category_id === categoryLink.category_id);
-        if (category) {
-            categoryInfo = category.category_name;
-        }
-    }
-    
-    modalContent.innerHTML = `
-        <div class="course-modal-header">
-            <h2>${course.course_id}</h2>
-            <button class="course-modal-close" onclick="closeCourseModal()">&times;</button>
-        </div>
-        <div class="course-modal-body">
-            <h3>${course.Name}</h3>
-            
-            <div class="course-info-grid">
-                <div class="course-info-item">
-                    <strong>Credits:</strong> ${course.Credits}
-                </div>
-                <div class="course-info-item">
-                    <strong>Category:</strong> ${categoryInfo}
-                </div>
-            </div>
-            
-            <div class="course-prereq-section">
-                <h4>Prerequisites:</h4>
-                <p>${prereqList}</p>
-            </div>
-            
-            <div class="course-dependent-section">
-                <h4>Required for:</h4>
-                <p>${dependentList}</p>
-            </div>
-            
-            <div class="course-description-section">
-                <h4>Description:</h4>
-                <p>${course.Description || 'No description available.'}</p>
-            </div>
-        </div>
-    `;
-    
-    modalOverlay.appendChild(modalContent);
-    document.body.appendChild(modalOverlay);
-    
-    // Add fade-in animation
-    setTimeout(() => {
-        modalOverlay.classList.add('show');
-    }, 10);
-}
+ 
 
-// Close the course information modal
-function closeCourseModal() {
-    const modal = document.querySelector('.course-modal-overlay');
-    if (modal) {
-        modal.classList.remove('show');
-        setTimeout(() => {
-            modal.remove();
-        }, 300); // Wait for fade-out animation
-    }
-} 

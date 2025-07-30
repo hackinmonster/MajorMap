@@ -14,7 +14,7 @@ app.use('/data', express.static('data'));
 
 // Serve the main page
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'templates', 'index.html'));
 });
 
 // Semantic search endpoint
