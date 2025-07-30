@@ -13,11 +13,11 @@ With MajorMap, you get an interactive roadmap of every course, clear prerequisit
 ---
 ### Visualize course relationships and degree structures
 
-<img width="3211" height="1887" alt="Screenshot from 2025-07-26 22-22-23" src="https://github.com/user-attachments/assets/ee9068eb-d743-4d82-9696-7012be56fc9d" />
+<img width="3239" height="1902" alt="Screenshot from 2025-07-29 21-04-19" src="https://github.com/user-attachments/assets/a94c09c6-27fb-4155-a122-45f093e823e1" />
 
 ### Plan out your semester schedules, knowing exactly what you can and can't take at any given point
 
-<img width="858" height="700" alt="Screenshot from 2025-07-26 22-23-32" src="https://github.com/user-attachments/assets/92e879d0-f5c3-4533-a721-92b3e9cf9925" />
+<img width="1400" height="1300" alt="Screenshot from 2025-07-29 21-05-09" src="https://github.com/user-attachments/assets/0010e8e6-4f09-4730-9510-7f628530b550" />
 
 ### Search for new courses that align with your interests and aspirations- no need to dig through a catalog
 
