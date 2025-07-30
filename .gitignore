@@ -54,3 +54,5 @@ backup/
 # Build outputs
 dist/
 build/
+
+chroma_db/

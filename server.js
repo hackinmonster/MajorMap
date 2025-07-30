@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const csv = require('csv-parser');
+const { ChromaClient } = require('chromadb');
 require('dotenv').config();
 
 const app = express();
@@ -12,12 +15,224 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/data', express.static('data'));
 
+// Course data cache
+let courses = [];
+
+// ChromaDB setup
+const chromaClient = new ChromaClient();
+let courseCollection = null;
+
+// Load course data on startup
+async function loadCourseData() {
+    try {
+        const coursesData = [];
+        return new Promise((resolve, reject) => {
+            fs.createReadStream(path.join(__dirname, 'data', 'courses.csv'))
+                .pipe(csv())
+                .on('data', (row) => {
+                    coursesData.push(row);
+                })
+                .on('end', () => {
+                    courses = coursesData;
+                    console.log(`Loaded ${courses.length} courses`);
+                    resolve();
+                })
+                .on('error', reject);
+        });
+    } catch (error) {
+        console.error('Error loading course data:', error);
+    }
+}
+
+// Initialize ChromaDB connection
+async function initializeChromaDB() {
+    try {
+        courseCollection = await chromaClient.getCollection({
+            name: "course_embeddings"
+        });
+        console.log('✅ Connected to ChromaDB course_embeddings collection');
+        
+        const count = await courseCollection.count();
+        console.log(`📊 ChromaDB contains ${count} course embeddings`);
+        
+        if (count === 0) {
+            console.log('⚠️  ChromaDB collection is empty! Run: node scripts/setup-embeddings.js');
+        }
+    } catch (error) {
+        console.error('❌ ChromaDB connection failed:', error.message);
+        console.log('💡 To setup ChromaDB, run: node scripts/setup-embeddings.js');
+        courseCollection = null;
+    }
+}
+
 // Serve the main page
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'templates', 'index.html'));
 });
 
-// Semantic search endpoint
+// Debug endpoint to check ITSC courses
+app.get('/api/debug-itsc-courses', async (req, res) => {
+    try {
+        const itscCourses = courses.filter(course => course.Subject === 'ITSC');
+        const sampleCourses = itscCourses.slice(0, 10).map(course => ({
+            course_id: `${course.Subject} ${course.Number}`,
+            name: course.Name,
+            description: course.Description?.substring(0, 100) + '...',
+            subject: course.Subject
+        }));
+        
+        res.json({
+            total_courses: courses.length,
+            itsc_courses_count: itscCourses.length,
+            sample_itsc_courses: sampleCourses
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Debug endpoint for subject detection
+app.get('/api/debug-subjects/:query', async (req, res) => {
+    try {
+        const query = req.params.query;
+        const queryLower = query.toLowerCase();
+        
+        const subjectHints = {
+            'philosophy': ['PHIL', 'RELS', 'AFRS'],
+            'psychology': ['PSYC', 'AFRS', 'SOCY'],
+            'biology': ['BIOL', 'BINF', 'CHEM'],
+            'zoology': ['BIOL'],
+            'physics': ['PHYS', 'MATH'],
+            'chemistry': ['CHEM', 'BIOL'],
+            'english': ['ENGL', 'WRTG'],
+            'history': ['HIST', 'AFRS', 'AMST'],
+            'economics': ['ECON', 'FINN'],
+            'business': ['BUSN', 'ACCT', 'FINN', 'MGMT'],
+        };
+        
+        let relevantSubjects = [];
+        let matchedTopic = null;
+        for (const [topic, subjects] of Object.entries(subjectHints)) {
+            if (queryLower.includes(topic)) {
+                relevantSubjects = [...relevantSubjects, ...subjects];
+                matchedTopic = topic;
+                break;
+            }
+        }
+        
+        const priorityCourses = courses.filter(course => relevantSubjects.includes(course.Subject));
+        const samplePriority = priorityCourses.slice(0, 5).map(c => `${c.Subject} ${c.Number} - ${c.Name}`);
+        
+        res.json({
+            query,
+            queryLower,
+            matchedTopic,
+            relevantSubjects,
+            priorityCoursesCount: priorityCourses.length,
+            samplePriorityCourses: samplePriority
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Debug endpoint to test course embeddings
+app.get('/api/test-course-embeddings', async (req, res) => {
+    try {
+        if (!process.env.OPENAI_API_KEY) {
+            return res.json({ error: 'OpenAI API key not configured' });
+        }
+
+        console.log('Testing course embeddings...');
+        
+        // Test with 3 very different course descriptions
+        const course1Text = "Introduction to basic computer literacy, computational thinking and problem-solving using a high level programming language";
+        const course2Text = "A study of discreet mathematical concepts. Introduction to propositional calculus, predicate calculus, algorithms, logic functions";
+        const course3Text = "Advanced Chinese Grammar and Conversation designed for students who have successfully completed Chinese Grammar and Conversation";
+        
+        console.log('Generating embeddings for 3 different courses...');
+        const emb1 = await generateEmbedding(course1Text);
+        const emb2 = await generateEmbedding(course2Text);
+        const emb3 = await generateEmbedding(course3Text);
+        
+        const sim12 = cosineSimilarity(emb1, emb2);
+        const sim13 = cosineSimilarity(emb1, emb3);
+        const sim23 = cosineSimilarity(emb2, emb3);
+        
+        res.json({
+            course1: { text: course1Text.substring(0, 80), embedding_sample: emb1.slice(0, 3) },
+            course2: { text: course2Text.substring(0, 80), embedding_sample: emb2.slice(0, 3) },
+            course3: { text: course3Text.substring(0, 80), embedding_sample: emb3.slice(0, 3) },
+            similarities: {
+                comp_math: sim12,
+                comp_chinese: sim13,
+                math_chinese: sim23
+            },
+            same_embeddings: JSON.stringify(emb1.slice(0, 5)) === JSON.stringify(emb2.slice(0, 5))
+        });
+    } catch (error) {
+        console.error('Test course embeddings error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate embeddings using OpenAI
+async function generateEmbedding(text) {
+    if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OpenAI API key not configured');
+    }
+
+    try {
+        const axios = require('axios');
+        const response = await axios.post('https://api.openai.com/v1/embeddings', {
+            model: "text-embedding-3-small",
+            input: text,
+            encoding_format: "float"
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const embedding = response.data.data[0].embedding;
+        return embedding;
+    } catch (error) {
+        console.error('Error generating embedding:', error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// Calculate cosine similarity between two vectors
+function cosineSimilarity(vecA, vecB) {
+    if (vecA.length !== vecB.length) {
+        throw new Error('Vectors must have the same length');
+    }
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normA += vecA[i] * vecA[i];
+        normB += vecB[i] * vecB[i];
+    }
+
+    normA = Math.sqrt(normA);
+    normB = Math.sqrt(normB);
+
+    if (normA === 0 || normB === 0) {
+        return 0;
+    }
+
+    return dotProduct / (normA * normB);
+}
+
+// Note: Course embeddings are now handled by ChromaDB
+// Run 'node scripts/setup-embeddings.js' to populate the vector database
+
+// Fast semantic search using ChromaDB
 app.post('/api/semantic-search', async (req, res) => {
     try {
         const { query } = req.body;
@@ -26,15 +241,163 @@ app.post('/api/semantic-search', async (req, res) => {
             return res.status(400).json({ error: 'Query is required' });
         }
 
-        // OpenAI API integration
-        const keywords = await getOpenAIKeywords(query);
+        // Check if ChromaDB is available
+        if (!courseCollection) {
+            console.log('ChromaDB not available, falling back to keyword search');
+            const keywords = await simulateOpenAIAnalysis(query);
+            return res.json({ 
+                results: performKeywordSearch(keywords, query),
+                method: 'keyword-fallback',
+                message: 'ChromaDB not available. Run: node scripts/setup-embeddings.js'
+            });
+        }
+
+        if (!process.env.OPENAI_API_KEY) {
+            const keywords = await simulateOpenAIAnalysis(query);
+            return res.json({ 
+                results: performKeywordSearch(keywords, query),
+                method: 'keyword'
+            });
+        }
+
+        console.log(`\n🔍 CHROMADB SEMANTIC SEARCH: "${query}"`);
         
-        res.json({ keywords });
+        // Generate embedding for query only (much faster!)
+        const queryEmbedding = await generateEmbedding(query);
+        console.log(`✅ Generated query embedding (${queryEmbedding.length}D)`);
+        
+        // Query ChromaDB for similar courses
+        const startTime = Date.now();
+        const chromaResults = await courseCollection.query({
+            queryEmbeddings: [queryEmbedding],
+            nResults: 20,
+            include: ['metadatas', 'documents', 'distances']
+        });
+        const queryTime = Date.now() - startTime;
+        
+        // Convert ChromaDB results to our format
+        const results = [];
+        if (chromaResults.ids && chromaResults.ids[0]) {
+            for (let i = 0; i < chromaResults.ids[0].length; i++) {
+                const courseId = chromaResults.ids[0][i];
+                const metadata = chromaResults.metadatas[0][i];
+                const distance = chromaResults.distances[0][i];
+                
+                // Convert distance to similarity (ChromaDB returns cosine distance)
+                const similarity = 1 - distance;
+                
+                // Convert ChromaDB format back to our course format
+                const course = {
+                    Name: metadata.name,
+                    Subject: metadata.subject,
+                    Number: metadata.number,
+                    Description: metadata.description,
+                    Credits: metadata.credits,
+                    Restrictions: metadata.restrictions,
+                    course_id: courseId.replace('_', ' ')
+                };
+                
+                results.push({
+                    course,
+                    similarity,
+                    relevancePercentage: Math.round(similarity * 100)
+                });
+                
+                // Log high-quality results
+                if (similarity > 0.3) {
+                    console.log(`✨ ${course.course_id}: ${(similarity * 100).toFixed(1)}% - ${metadata.name.substring(0, 50)}`);
+                }
+            }
+        }
+        
+        console.log(`⚡ ChromaDB query completed in ${queryTime}ms`);
+        console.log(`🎯 Found ${results.length} results. Top similarity: ${results.length > 0 ? (results[0].similarity * 100).toFixed(1) : 0}%`);
+        
+        const debugInfo = {
+            chromadb_query_time_ms: queryTime,
+            total_results: results.length,
+            top_similarity: results.length > 0 ? results[0].similarity.toFixed(3) : '0',
+            method: 'chromadb'
+        };
+        
+        res.json({ 
+            results: results.slice(0, 15), // Return top 15
+            method: 'semantic-chromadb',
+            query: query,
+            debug: debugInfo
+        });
+        
     } catch (error) {
-        console.error('Semantic search error:', error);
-        res.status(500).json({ error: 'Failed to process semantic search request' });
+        console.error('ChromaDB semantic search error:', error);
+        
+        // Fallback to keyword search
+        try {
+            const keywords = await simulateOpenAIAnalysis(req.body.query);
+            res.json({ 
+                results: performKeywordSearch(keywords, req.body.query),
+                method: 'keyword-fallback',
+                error: error.message
+            });
+        } catch (fallbackError) {
+            res.status(500).json({ error: 'Failed to process search request' });
+        }
     }
 });
+
+// Keyword-based search fallback
+function performKeywordSearch(keywords, originalQuery) {
+    const scoredCourses = courses.map(course => {
+        const searchText = `${course.Name || ''} ${course.Description || ''}`.toLowerCase();
+        const courseId = `${course.Subject} ${course.Number}`;
+        
+        let score = 0;
+        let matchedKeywords = [];
+        
+        // Score based on keyword matches
+        keywords.forEach(keyword => {
+            const keywordLower = keyword.toLowerCase();
+            
+            // Higher score for exact matches in course name
+            if ((course.Name || '').toLowerCase().includes(keywordLower)) {
+                score += 10;
+                matchedKeywords.push(keyword);
+            }
+            
+            // Medium score for matches in description
+            if (course.Description && course.Description.toLowerCase().includes(keywordLower)) {
+                score += 5;
+                if (!matchedKeywords.includes(keyword)) {
+                    matchedKeywords.push(keyword);
+                }
+            }
+            
+            // Lower score for partial matches
+            if (searchText.includes(keywordLower.substring(0, 4))) {
+                score += 2;
+            }
+        });
+        
+        // Add course ID for frontend compatibility
+        const enhancedCourse = {
+            ...course,
+            course_id: courseId
+        };
+        
+        return {
+            course: enhancedCourse,
+            score,
+            similarity: score / 100, // Convert to similarity-like score
+            matchedKeywords,
+            relevancePercentage: Math.min(100, Math.round((score / keywords.length) * 10))
+        };
+    });
+    
+    // Filter courses with score > 0 and sort by score
+    return scoredCourses
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 15); // Limit to top 15 results
+}
 
 async function getOpenAIKeywords(userQuery) {
     // If OpenAI API key is not provided, fall back to local analysis
@@ -161,7 +524,25 @@ async function simulateOpenAIAnalysis(userInput) {
     return keywords;
 }
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log('OpenAI API Key:', process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured (using fallback)');
+// Start server and load data
+async function startServer() {
+    await loadCourseData();
+    await initializeChromaDB();
+    
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+        console.log('OpenAI API Key:', process.env.OPENAI_API_KEY ? 'Configured for query embeddings' : 'Not configured (using keyword fallback)');
+        
+        if (courseCollection) {
+            console.log('🚀 ChromaDB semantic search ready - FAST vector queries enabled!');
+        } else {
+            console.log('⚠️  ChromaDB not available - using keyword search fallback');
+            console.log('💡 To enable fast semantic search: node scripts/setup-embeddings.js');
+        }
+    });
+}
+
+startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
 }); 

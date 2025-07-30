@@ -8,7 +8,16 @@ University curricula can span 40+ courses with tangled prerequisite webs, forcin
 <br>
 <br>
 
-With MajorMap, you get an interactive roadmap of every course, clear prerequisite paths, what-if planning tools, AI-powered course searching, and opportunties for research, internships, and networking / L&D events right in one centralized location.
+With MajorMap, you get an interactive roadmap of every course, clear prerequisite paths, what-if planning tools, semantic course search, and opportunties for research, internships, and networking / L&D events right in one centralized location.
+
+## Semantic Search Setup
+
+For the full semantic search experience, you'll need an OpenAI API key:
+
+1. Create a `.env` file in the project root
+2. Add your OpenAI API key: `OPENAI_API_KEY=your_api_key_here`
+
+Without an API key, the system will fall back to keyword-based search.
 
 ---
 ### Visualize course relationships and degree structures

@@ -25,7 +25,7 @@ function openSemanticSearchModal() {
         <div class="semantic-modal-header">
             <h2>
                 <i class="fas fa-brain"></i>
-                AI Course Search
+                Semantic Course Search
             </h2>
             <button class="semantic-modal-close" onclick="closeSemanticSearchModal()">&times;</button>
         </div>
@@ -111,27 +111,30 @@ async function performSemanticSearch() {
     `;
     
     try {
-        // Step 1: Get keywords from OpenAI
-        console.log('Calling getSearchKeywords...'); // Debug log
-        const keywords = await getSearchKeywords(input);
-        console.log('Generated keywords:', keywords);
+        // Get semantic search results from API
+        console.log('Calling semantic search API...');
+        const rankedCourses = await getSemanticSearchResults(input);
+        console.log('Received courses:', rankedCourses);
         
-        // Step 2: Perform semantic search on courses
-        console.log('Performing course search...'); // Debug log
-        const rankedCourses = performCourseSemanticSearch(keywords, input);
-        console.log('Ranked courses:', rankedCourses);
-        
-        // Step 3: Display results
-        console.log('Displaying results...'); // Debug log
-        displaySemanticResults(rankedCourses, keywords);
+        // Display results
+        console.log('Displaying results...');
+        displaySemanticResults(rankedCourses, input);
         
     } catch (error) {
         console.error('Semantic search error:', error);
-        resultsContainer.innerHTML = `
-            <div class="alert alert-danger">
-                <strong>Error:</strong> Unable to process your request. ${error.message || 'Please try again later.'}
-            </div>
-        `;
+        
+        // Fallback to local analysis on error
+        try {
+            const keywords = await simulateOpenAIAnalysis(input);
+            const fallbackResults = performCourseSemanticSearch(keywords, input);
+            displaySemanticResults(fallbackResults, input);
+        } catch (fallbackError) {
+            resultsContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Error:</strong> Unable to process your request. ${error.message || 'Please try again later.'}
+                </div>
+            `;
+        }
     } finally {
         // Re-enable button
         searchButton.disabled = false;
@@ -139,36 +142,39 @@ async function performSemanticSearch() {
     }
 }
 
-// Get search keywords from OpenAI API
-async function getSearchKeywords(userInput) {
+// Get semantic search results from API
+async function getSemanticSearchResults(userInput) {
     try {
-        console.log('Making API call for input:', userInput); // Debug log
+        console.log('Making semantic search API call for input:', userInput);
         
         const response = await fetch('/api/semantic-search', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache', // Prevent caching
+                'Cache-Control': 'no-cache',
             },
             body: JSON.stringify({ 
                 query: userInput,
-                timestamp: Date.now() // Add timestamp to ensure unique requests
+                timestamp: Date.now()
             })
         });
         
-        console.log('API response status:', response.status); // Debug log
+        console.log('API response status:', response.status);
         
         if (!response.ok) {
             throw new Error('Failed to get course recommendations');
         }
         
         const data = await response.json();
-        console.log('API response data:', data); // Debug log
-        return data.keywords;
+        console.log('API response data:', data);
+        console.log('Search method used:', data.method);
+        
+        return data.results || [];
     } catch (error) {
-        console.error('API call failed, falling back to local analysis:', error);
+        console.error('Semantic search API failed, falling back to local analysis:', error);
         // Fallback to local analysis if API fails
-        return await simulateOpenAIAnalysis(userInput);
+        const keywords = await simulateOpenAIAnalysis(userInput);
+        return performCourseSemanticSearch(keywords, userInput);
     }
 }
 
@@ -309,7 +315,7 @@ function performCourseSemanticSearch(keywords, originalQuery) {
 }
 
 // Display semantic search results
-function displaySemanticResults(rankedCourses, keywords) {
+function displaySemanticResults(rankedCourses, queryOrKeywords) {
     const resultsContainer = document.getElementById('semanticResults');
     
     if (rankedCourses.length === 0) {
@@ -322,13 +328,23 @@ function displaySemanticResults(rankedCourses, keywords) {
         return;
     }
     
-    const keywordsList = keywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('');
+    // Check if we have keywords (array) or just a query string
+    let headerInfo = '';
+    if (Array.isArray(queryOrKeywords)) {
+        // Keyword-based fallback
+        const keywordsList = queryOrKeywords.map(k => `<span class="badge bg-primary me-1">${k}</span>`).join('');
+        headerInfo = `<small class="text-muted">Based on keywords: ${keywordsList}</small>`;
+    } else {
+        // Semantic search
+        const topSimilarity = rankedCourses[0]?.relevancePercentage || 0;
+        headerInfo = `<small class="text-muted">Semantic similarity search • Top match: ${topSimilarity}%</small>`;
+    }
     
     const resultsHTML = `
         <div class="semantic-results">
             <h3>Recommended Courses</h3>
             <div class="mb-3">
-                <small class="text-muted">Based on keywords: ${keywordsList}</small>
+                ${headerInfo}
             </div>
             ${rankedCourses.map(item => createCourseResultHTML(item)).join('')}
         </div>
@@ -339,26 +355,29 @@ function displaySemanticResults(rankedCourses, keywords) {
 
 // Create HTML for a single course result
 function createCourseResultHTML(courseItem) {
-    const { course, score, matchedKeywords, relevancePercentage } = courseItem;
+    const { course, score, matchedKeywords, relevancePercentage, similarity } = courseItem;
     const truncatedDescription = course.Description ? 
         (course.Description.length > 200 ? course.Description.substring(0, 200) + '...' : course.Description) :
         'No description available.';
     
-    const matchedKeywordsBadges = matchedKeywords.map(k => 
-        `<span class="badge bg-success me-1">${k}</span>`
-    ).join('');
+    // Handle both semantic search results and keyword-based results
+    const matchInfo = matchedKeywords && matchedKeywords.length > 0 ? 
+        matchedKeywords.map(k => `<span class="badge bg-success me-1">${k}</span>`).join('') : '';
+    
+    // Use similarity score if available (semantic search), otherwise use relevancePercentage
+    const displayPercentage = similarity ? Math.round(similarity * 100) : relevancePercentage;
     
     return `
         <div class="course-result" onclick="showCourseInformation('${course.course_id}')">
             <div class="course-result-header">
                 <div class="course-result-id">${course.course_id}</div>
-                <div class="course-result-relevance">${relevancePercentage}% match</div>
+                <div class="course-result-relevance">${displayPercentage}% match</div>
             </div>
             <div class="course-result-name">${course.Name}</div>
             <div class="course-result-description">${truncatedDescription}</div>
-            ${matchedKeywords.length > 0 ? `
+            ${matchInfo ? `
                 <div class="mt-2">
-                    <small class="text-muted">Matched: ${matchedKeywordsBadges}</small>
+                    <small class="text-muted">Matched: ${matchInfo}</small>
                 </div>
             ` : ''}
             <div class="course-result-actions">
